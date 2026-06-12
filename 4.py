@@ -43,7 +43,7 @@ else:
         master_df = load_and_process_bom(SAVE_FILE_PATH)
             
         st.markdown("### 🔍 단가 변동 자재 조회 (모든 품목 대상)")
-        st.write("조회할 자재 코드(ItemNo)를 입력하거나 엑셀 파일을 업로드하세요. 상위 품목(PItemNo)을 산출합니다.")
+        st.write("조회할 자재 코드를 입력하거나 엑셀 파일을 업로드하세요. 상위 품목을 산출합니다.")
         
         # 💡 핵심 수정: 사용자의 편의를 위해 입력 방식을 두 가지 탭으로 분리
         tab1, tab2 = st.tabs(["📋 텍스트 복사/붙여넣기", "📂 엑셀 파일 업로드"])

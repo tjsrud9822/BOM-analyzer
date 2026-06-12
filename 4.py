@@ -45,20 +45,23 @@ else:
         st.markdown("### 🔍 단가 변동 자재 조회 (모든 품목 대상)")
         st.write("조회할 자재 코드를 입력하거나 엑셀 파일을 업로드하세요. 상위 품목을 산출합니다.")
         
-        # 💡 핵심 수정: 사용자의 편의를 위해 입력 방식을 두 가지 탭으로 분리
         tab1, tab2 = st.tabs(["📋 텍스트 복사/붙여넣기", "📂 엑셀 파일 업로드"])
         
         codes_from_text = []
         codes_from_file = []
         
         with tab1:
-            pasted_text = st.text_area(
-                "조회할 자재 코드를 복사해서 붙여넣으세요. (줄바꿈, 쉼표, 공백 구분 지원)", 
-                height=150,
-                placeholder="예시:\n40001\n40002\n40003"
-            )
+            # 💡 핵심 수정: Form을 생성하여 버튼을 누르기 전까지는 코드가 자동 실행되지 않도록 통제함
+            with st.form("search_form"):
+                pasted_text = st.text_area(
+                    "조회할 자재 코드를 복사해서 붙여넣으세요. (줄바꿈, 쉼표, 공백 구분 지원)", 
+                    height=150,
+                    placeholder="예시:\n40001\n40002\n40003"
+                )
+                search_btn = st.form_submit_button("조회하기 🔍")
+            
+            # 입력된 텍스트가 존재하면 코드 분리 작업 수행
             if pasted_text.strip():
-                # 정규표현식을 사용하여 줄바꿈(\n), 쉼표(,), 공백(\s)을 기준으로 코드를 정확히 분리합니다.
                 raw_codes = re.split(r'[\n,\s]+', pasted_text)
                 codes_from_text = [str(x).strip() for x in raw_codes if str(x).strip() != '']
                 
@@ -69,16 +72,13 @@ else:
                 all_values = target_df.values.flatten().tolist()
                 codes_from_file = [str(x).strip() for x in all_values if str(x).strip() != 'nan' and str(x).strip() != '']
 
-        # 두 가지 방식 중 입력된 모든 코드를 취합하여 중복을 제거합니다.
         target_codes = list(set(codes_from_text + codes_from_file))
         
         if not target_codes:
-            st.info("💡 위의 입력창에 코드를 붙여넣거나 엑셀 파일을 업로드하시면 조회가 시작됩니다.")
+            st.info("💡 위의 입력창에 코드를 붙여넣고 [조회하기]를 누르거나, 엑셀 파일을 업로드해 주세요.")
         else:
-            # 투입 자재 코드가 일치하는 행 필터링
             filtered_df = master_df[master_df['ItemNo'].isin(target_codes)]
             
-            # 요청하신 컬럼 순서 및 구성 고정
             target_columns = ['ItemNo', 'ItemName', 'ItemNo 거래처', 'PItemNo', 'PItemName', 'PItemNo 거래처']
             
             display_columns = []
@@ -88,7 +88,6 @@ else:
             
             final_df = filtered_df[display_columns].drop_duplicates().reset_index(drop=True)
             
-            # 컬럼 이름 변경
             rename_dict = {
                 'ItemNo': '투입 자재 코드',
                 'ItemName': '투입 자재명',

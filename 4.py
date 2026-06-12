@@ -42,7 +42,7 @@ else:
         master_df = load_and_process_bom(SAVE_FILE_PATH)
             
         st.markdown("### 🔍 단가 변동 자재 조회 (모든 품목 대상)")
-        st.write("조회할 자재 코드(ItemNo)가 포함된 엑셀 파일을 업로드하세요. 상위 품목(PItemNo)을 산출합니다.")
+        st.write("조회할 자재 코드가 포함된 엑셀 파일을 업로드하세요. 상위 품목을 산출합니다.")
         
         target_file = st.file_uploader("조회 대상 엑셀 파일 업로드", type=["xlsx"], key="target")
         
@@ -56,38 +56,32 @@ else:
             if not target_codes:
                 st.error("업로드하신 파일에서 유효한 코드를 찾지 못했습니다.")
             else:
+                # 투입 자재 코드가 일치하는 모든 행 추출 (번호 제한 없음)
                 filtered_df = master_df[master_df['ItemNo'].isin(target_codes)]
-                filtered_df = filtered_df[filtered_df['PItemNo'].str.startswith('3')]
                 
-                # 💡 핵심 수정: 마스터 BOM에서 거래처/업체 관련 컬럼을 자동으로 찾아냄
-                vendor_keywords = ['거래처', '업체', 'vendor', '협력사']
-                detected_vendor_cols = [
-                    col for col in master_df.columns 
-                    if any(kw in col.lower() for kw in vendor_keywords)
-                ]
+                # 💡 핵심 수정: 요청하신 순서대로 컬럼 위치 고정
+                target_columns = ['ItemNo', 'ItemName', 'ItemNo 거래처', 'PItemNo', 'PItemName', 'PItemNo 거래처']
                 
-                # 출력할 컬럼 구성 (기본 4개 컬럼 + 자동 감지된 거래처 컬럼들)
-                base_columns = ['ItemNo', 'ItemName', 'PItemNo', 'PItemName']
-                display_columns = [col for col in base_columns if col in filtered_df.columns]
-                
-                # 감지된 거래처 컬럼 중 중복되지 않는 것만 추가
-                for v_col in detected_vendor_cols:
-                    if v_col not in display_columns:
-                        display_columns.append(v_col)
+                display_columns = []
+                for col in target_columns:
+                    if col in filtered_df.columns:
+                        display_columns.append(col)
                 
                 final_df = filtered_df[display_columns].drop_duplicates().reset_index(drop=True)
                 
-                # 기본 컬럼명 직관적으로 변경
+                # 화면 및 엑셀 출력용 명칭 변경
                 rename_dict = {
                     'ItemNo': '투입 자재 코드',
                     'ItemName': '투입 자재명',
+                    'ItemNo 거래처': '투입자재 거래처',
                     'PItemNo': '상위 품목 코드',
-                    'PItemName': '상위 품목명'
+                    'PItemName': '상위 품목명',
+                    'PItemNo 거래처': '상위품목 거래처'
                 }
                 final_df = final_df.rename(columns=rename_dict)
                 
                 if final_df.empty:
-                    st.warning("일치하는 투입 자재 코드를 찾았으나, 해당 자재의 PItemNo가 3으로 시작하는 반제품이 아닙니다.")
+                    st.warning("일치하는 투입 자재 코드를 찾았으나, 연결된 상위 품목 데이터가 없습니다.")
                 else:
                     st.success(f"총 {len(final_df)}건의 매칭 결과를 산출했습니다!")
                     

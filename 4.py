@@ -41,7 +41,7 @@ else:
     try:
         master_df = load_and_process_bom(SAVE_FILE_PATH)
             
-        st.markdown("### 🔍 조회할 자재 코드가 포함된 엑셀 파일을 업로드하세요. 상위 품목을 산출합니다.")
+        st.markdown("### 🔍 조회할 자재 코드가 포함된 엑셀 파일을 업로드하세요.")
              
         target_file = st.file_uploader("조회 대상 엑셀 파일 업로드", type=["xlsx"], key="target")
         

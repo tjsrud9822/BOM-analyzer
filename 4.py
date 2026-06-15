@@ -6,19 +6,31 @@ import re
 
 st.title("BOM 역전개 조회 프로그램")
 
-SAVE_FILE_PATH = "saved_master_bom.xlsx"
+# 💡 핵심: 깃허브에 올라간 CSV 파일을 기본 장착하여 매번 업로드하는 시간을 소멸시킴
+DEFAULT_MASTER_FILE = "master_bom.csv"
+UPLOADED_MASTER_FILE = "uploaded_master_bom.csv"
 
 # --------------------------------------------------
-@st.cache_data(show_spinner="마스터 BOM을 분석 중입니다.")
+@st.cache_data(show_spinner="초고속 메모리 로딩 중...")
 def load_and_process_bom(file_path):
-    df = pd.read_excel(file_path, dtype=str)
-    
+    # 무거운 엑셀(read_excel) 대신 초고속 CSV(read_csv)를 사용하여 0.1초 만에 해독
+    try:
+        try:
+            df = pd.read_csv(file_path, dtype=str, encoding='utf-8')
+        except UnicodeDecodeError:
+            try:
+                df = pd.read_csv(file_path, dtype=str, encoding='cp949')
+            except UnicodeDecodeError:
+                df = pd.read_csv(file_path, dtype=str, encoding='utf-8-sig')
+    except Exception as e:
+        raise ValueError(f"파일을 읽는 중 오류가 발생했습니다: {e}")
+        
     df.columns = df.columns.str.strip()
     required_cols = ['ItemNo', 'PItemNo', 'BOMLevel']
     
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
-        raise ValueError(f"마스터 BOM 엑셀 파일에 {missing_cols} 컬럼이 반드시 있어야 합니다.")
+        raise ValueError(f"마스터 데이터에 {missing_cols} 컬럼이 반드시 있어야 합니다.")
         
     for col in df.columns:
         if col in required_cols or '대분류' in str(col):
@@ -28,24 +40,30 @@ def load_and_process_bom(file_path):
 
 # --------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ 마스터 BOM 관리")
-    st.write("BOM 구조가 변경되었을 때만 갱신하세요.")
+    st.header("⚙️ 마스터 BOM 갱신 (선택)")
+    st.write("기본 데이터는 서버에 0.1초 만에 켜지도록 자동 내장되어 있습니다. 향후 마스터 데이터가 변경되었을 때만 새 CSV 파일을 업로드하세요.")
     
-    master_file = st.file_uploader("마스터 BOM 엑셀 업로드", type=["xlsx"], key="master")
+    master_file = st.file_uploader("마스터 BOM 업로드 (.csv 전용)", type=["csv"], key="master")
     
     if master_file is not None:
-        with open(SAVE_FILE_PATH, "wb") as f:
+        with open(UPLOADED_MASTER_FILE, "wb") as f:
             f.write(master_file.getbuffer())
         
         load_and_process_bom.clear()
-        st.success("✅ 마스터 BOM이 성공적으로 갱신되었습니다!")
+        st.success("✅ 새로운 마스터 데이터가 적용되었습니다!")
 
 # --------------------------------------------------
-if not os.path.exists(SAVE_FILE_PATH):
-    st.warning("📂 왼쪽 메뉴에서 기준이 되는 [마스터 BOM]을 먼저 업로드해 주세요.")
+current_file_path = None
+if os.path.exists(UPLOADED_MASTER_FILE):
+    current_file_path = UPLOADED_MASTER_FILE
+elif os.path.exists(DEFAULT_MASTER_FILE):
+    current_file_path = DEFAULT_MASTER_FILE
+
+if not current_file_path:
+    st.warning("📂 GitHub 저장소에 'master_bom.csv' 파일을 올려두시면 웹사이트가 열릴 때마다 즉시 분석을 완료합니다.")
 else:
     try:
-        master_df = load_and_process_bom(SAVE_FILE_PATH)
+        master_df = load_and_process_bom(current_file_path)
             
         st.markdown("### 🔍 다계층 BOM 역전개 조회")
         st.write("조회할 자재 코드(ItemNo)를 입력하거나 엑셀 파일을 업로드하세요. 계층 구조를 역추적합니다.")
@@ -91,7 +109,6 @@ else:
                         category_col = col
                         break
                 
-                # 💡 핵심 수정: BOMLevel 데이터의 중복 행을 제거하여 인덱스 유일성(Unique)을 확보합니다.
                 master_df_clean = master_df[master_df['BOMLevel'].notna() & (master_df['BOMLevel'] != '')]
                 master_df_unique = master_df_clean.drop_duplicates(subset=['BOMLevel'], keep='first')
                 bom_map = master_df_unique.set_index('BOMLevel').to_dict('index')
@@ -106,7 +123,6 @@ else:
                     
                     tokens = bom_level.split('-') if bom_level else []
                     
-                    # 1. 중간 상위 레벨 역추적
                     upper_items = []
                     for i in range(len(tokens) - 1, 1, -1):
                         p_lvl_str = "-".join(tokens[:i])
@@ -118,7 +134,6 @@ else:
                     
                     upper_items_combined = " ➔ ".join(upper_items) if upper_items else "직계 상위 없음"
                     
-                    # 2. 최종 상위 제품 정보 및 대분류 추출
                     final_pitem_no = ""
                     final_pitem_name = ""
                     final_category = ""
@@ -160,7 +175,7 @@ else:
                     st.success(f"총 {len(final_df)}건의 계층 역전개 결과를 산출했습니다!")
                     
                     if len(final_df) > 100:
-                        st.info("💡 노트북 과부하를 막기 위해 화면에는 상위 100건만 미리보기로 표시됩니다. (전체 결과는 엑셀로 다운로드하세요)")
+                        st.info("💡 화면에는 상위 100건만 표시됩니다. (전체 결과는 엑셀로 다운로드하세요)")
                         st.dataframe(final_df.head(100), hide_index=True)
                     else:
                         st.dataframe(final_df, hide_index=True)

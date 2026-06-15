@@ -39,7 +39,7 @@ def load_and_process_bom(file_path):
 # --------------------------------------------------
 with st.sidebar:
     st.header("⚙️ 마스터 BOM 갱신 (선택)")
-    st.write("기본 데이터는 서버에 0.1초 만에 켜지도록 자동 내장되어 있습니다. 향후 마스터 데이터가 변경되었을 때만 새 CSV 파일을 업로드하세요.")
+    st.write("기본 데이터는 서버에 자동 내장되어 있습니다. 향후 구조가 변경되었을 때만 새 CSV 파일을 업로드하세요.")
     
     master_file = st.file_uploader("마스터 BOM 업로드 (.csv 전용)", type=["csv"], key="master")
     
@@ -63,8 +63,8 @@ else:
     try:
         master_df = load_and_process_bom(current_file_path)
             
-        st.markdown("### 🔍 다계층 BOM 역전개 조회")
-        st.write("조회할 자재 코드(ItemNo)를 입력하거나 엑셀 파일을 업로드하세요. 계층 구조를 역추적합니다.")
+        st.markdown("### 🔍 단계별 역전개 조회")
+        st.write("자재 코드(ItemNo)를 입력하여 상위 품목을 먼저 확인한 뒤, 원하는 상위 품목의 최종 제품을 조회합니다.")
         
         tab1, tab2 = st.tabs(["📋 텍스트 복사/붙여넣기", "📂 엑셀 파일 업로드"])
         
@@ -76,9 +76,9 @@ else:
                 pasted_text = st.text_area(
                     "조회할 자재 코드를 복사해서 붙여넣으세요. (줄바꿈, 쉼표, 공백 구분 지원)", 
                     height=150,
-                    placeholder="예시:\n4AC990533\n4BC"
+                    placeholder="예시:\n4AC990533\n4BC010088"
                 )
-                search_btn = st.form_submit_button("조회하기 🔍")
+                search_btn = st.form_submit_button("1단계 조회하기 🔍")
             
             if pasted_text.strip():
                 raw_codes = re.split(r'[\n,\s]+', pasted_text)
@@ -107,8 +107,6 @@ else:
                         category_col = col
                         break
                 
-                # 💡 핵심 수정: 단순히 BOMLevel만 고유키로 쓰면 다른 제품의 트리가 삭제됨.
-                # (최종제품코드 + BOM버전 + BOMLevel)을 조합하여 절대 중복되지 않는 고유 키(TreeKey)를 생성.
                 master_df_clean = master_df[master_df['BOMLevel'].notna() & (master_df['BOMLevel'] != '')].copy()
                 
                 if 'PItemBomRev' in master_df_clean.columns:
@@ -122,7 +120,7 @@ else:
                 master_df_unique = master_df_clean.drop_duplicates(subset=['TreeKey'], keep='first')
                 bom_map = master_df_unique.set_index('TreeKey').to_dict('index')
                 
-                result_data = []
+                all_results = []
                 matched_records = matched_rows.to_dict('records')
                 
                 for row in matched_records:
@@ -137,56 +135,67 @@ else:
                     
                     tokens = bom_level.split('-') if bom_level else []
                     
-                    # 1. 중간 상위 레벨 역추적 (유실 없이 해당 트리의 직계 부모만 정확히 추적)
-                    upper_items = []
-                    for i in range(len(tokens) - 1, 0, -1):
-                        p_lvl_str = "-".join(tokens[:i])
+                    parent_str = "직계 상위 없음 (최상위 품목)"
+                    if len(tokens) > 1:
+                        p_lvl_str = "-".join(tokens[:-1])
                         search_key = prefix + p_lvl_str
                         p_row = bom_map.get(search_key, {})
+                        
                         p_item = p_row.get('ItemNo', '')
                         p_name = p_row.get('ItemName', '')
                         if p_item:
-                            upper_items.append(f"{p_item}({p_name})")
+                            parent_str = f"{p_item}({p_name})"
                     
-                    upper_items_combined = " ➔ ".join(upper_items) if upper_items else "직계 상위 없음"
-                    
-                    # 2. 최종 제품 정보 (PItemNo) 및 대분류
-                    final_pitem_no = pitem_no
-                    final_pitem_name = pitem_name
+                    final_pitem_combined = f"{pitem_no}({pitem_name})" if pitem_no else ""
                     final_category = row.get(category_col, '') if category_col else ''
                                 
-                    result_data.append({
+                    all_results.append({
                         '입력 자재 코드': item_no,
                         '자재명': item_name if pd.notna(item_name) else "",
-                        '본인 BOM 레벨': bom_level,
-                        '중간 상위 계층 목록': upper_items_combined,
-                        '최종 제품 코드(PItemNo)': final_pitem_no if pd.notna(final_pitem_no) else "",
-                        '최종 제품명(PItemName)': final_pitem_name if pd.notna(final_pitem_name) else "",
+                        '상위 품목': parent_str,
+                        '최종 제품(코드+제품명)': final_pitem_combined,
                         '대분류': final_category if pd.notna(final_category) else ""
                     })
                 
-                final_df = pd.DataFrame(result_data).drop_duplicates().reset_index(drop=True)
+                df_all = pd.DataFrame(all_results).drop_duplicates().reset_index(drop=True)
                 
-                if final_df.empty:
-                    st.warning("역전개 조건을 만족하는 데이터 조합을 만들지 못했습니다.")
-                else:
-                    st.success(f"총 {len(final_df)}건의 계층 역전개 결과를 산출했습니다!")
+                # ==========================================
+                # 💡 핵심 수정: 화면을 1단계와 2단계로 명확히 분리
+                # ==========================================
+                
+                # --- 1단계: 상위 품목 요약표 ---
+                st.markdown("---")
+                st.markdown("#### 🟢 1단계: 투입 자재의 상위 품목 확인")
+                step1_df = df_all[['입력 자재 코드', '자재명', '상위 품목']].drop_duplicates().reset_index(drop=True)
+                st.dataframe(step1_df, hide_index=True)
+                
+                # --- 2단계: 체크박스(다중 선택) 및 최종 제품 조회 ---
+                st.markdown("#### 🔵 2단계: 최종 제품 전개")
+                unique_parents = step1_df['상위 품목'].unique().tolist()
+                
+                selected_parents = st.multiselect(
+                    "👉 최종 제품을 확인할 상위 품목을 선택하세요 (여러 개 선택 가능):", 
+                    options=unique_parents,
+                    placeholder="여기를 클릭하여 상위 품목 선택"
+                )
+                
+                if selected_parents:
+                    step2_df = df_all[df_all['상위 품목'].isin(selected_parents)]
+                    final_display_df = step2_df[['상위 품목', '최종 제품(코드+제품명)', '대분류']].drop_duplicates().reset_index(drop=True)
                     
-                    if len(final_df) > 100:
-                        st.info("💡 화면에는 상위 100건만 표시됩니다. (전체 결과는 엑셀로 다운로드하세요)")
-                        st.dataframe(final_df.head(100), hide_index=True)
-                    else:
-                        st.dataframe(final_df, hide_index=True)
-
+                    st.success(f"선택하신 상위 품목이 투입되는 최종 제품 총 {len(final_display_df)}건을 찾았습니다!")
+                    st.dataframe(final_display_df, hide_index=True)
+                    
+                    # 엑셀 다운로드는 사용자가 선택한 최종 결과만 깔끔하게 저장
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        final_df.to_excel(writer, index=False, sheet_name='다계층 역전개 결과')
+                        final_display_df.to_excel(writer, index=False, sheet_name='최종제품_역전개_결과')
                     excel_data = output.getvalue()
 
                     st.download_button(
-                        label="조회 결과 엑셀로 내려받기 📥",
+                        label="선택 결과 엑셀로 내려받기 📥",
                         data=excel_data,
-                        file_name="BOM_다계층_역전개_결과.xlsx",
+                        file_name="BOM_최종제품_역전개_결과.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
 

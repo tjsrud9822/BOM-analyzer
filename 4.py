@@ -112,87 +112,84 @@ else:
             if matched_rows.empty:
                 st.warning("마스터 BOM에서 일치하는 자재 코드를 찾지 못했습니다.")
             else:
-                category_col = None
-                for col in master_df.columns:
-                    if '대분류' in str(col):
-                        category_col = col
-                        break
-                
-                master_df_clean = master_df[master_df['BOMLevel'].notna() & (master_df['BOMLevel'] != '')].copy()
-                
-                if 'PItemBomRev' in master_df_clean.columns:
-                    master_df_clean['TreeKey'] = master_df_clean['PItemNo'].astype(str) + "_" + \
-                                                 master_df_clean['PItemBomRev'].astype(str) + "_" + \
-                                                 master_df_clean['BOMLevel'].astype(str)
-                else:
-                    master_df_clean['TreeKey'] = master_df_clean['PItemNo'].astype(str) + "_" + \
-                                                 master_df_clean['BOMLevel'].astype(str)
-                
-                master_df_unique = master_df_clean.drop_duplicates(subset=['TreeKey'], keep='first')
-                bom_map = master_df_unique.set_index('TreeKey').to_dict('index')
-                
-                all_results = []
-                matched_records = matched_rows.to_dict('records')
-                
-                for row in matched_records:
-                    item_no = row.get('ItemNo', '')
-                    item_name = row.get('ItemName', '')
-                    bom_level = str(row.get('BOMLevel', '')).strip()
+                # 💡 핵심 수정: 1단계 데이터 연산 중 로딩 스피너 작동
+                with st.spinner("⏳ 입력하신 자재의 상위 품목을 역추적하고 있습니다. 잠시만 기다려 주십시오..."):
+                    category_col = None
+                    for col in master_df.columns:
+                        if '대분류' in str(col):
+                            category_col = col
+                            break
                     
-                    pitem_no = str(row.get('PItemNo', '')).strip()
-                    pitem_name = str(row.get('PItemName', '')).strip()
-                    rev = str(row.get('PItemBomRev', '')).strip() if 'PItemBomRev' in master_df_clean.columns else ''
-                    prefix = f"{pitem_no}_{rev}_" if 'PItemBomRev' in master_df_clean.columns else f"{pitem_no}_"
+                    master_df_clean = master_df[master_df['BOMLevel'].notna() & (master_df['BOMLevel'] != '')].copy()
                     
-                    tokens = bom_level.split('-') if bom_level else []
+                    if 'PItemBomRev' in master_df_clean.columns:
+                        master_df_clean['TreeKey'] = master_df_clean['PItemNo'].astype(str) + "_" + \
+                                                     master_df_clean['PItemBomRev'].astype(str) + "_" + \
+                                                     master_df_clean['BOMLevel'].astype(str)
+                    else:
+                        master_df_clean['TreeKey'] = master_df_clean['PItemNo'].astype(str) + "_" + \
+                                                     master_df_clean['BOMLevel'].astype(str)
                     
-                    parent_str = ""
-                    found_3_series = False
+                    master_df_unique = master_df_clean.drop_duplicates(subset=['TreeKey'], keep='first')
+                    bom_map = master_df_unique.set_index('TreeKey').to_dict('index')
                     
-                    # 5번 코드 패스, 3번대 코드만 추출
-                    if len(tokens) > 1:
-                        for i in range(len(tokens) - 1, 0, -1):
-                            p_lvl_str = "-".join(tokens[:i])
-                            search_key = prefix + p_lvl_str
-                            p_row = bom_map.get(search_key, {})
-                            
-                            p_item = str(p_row.get('ItemNo', '')).strip()
-                            p_name = str(p_row.get('ItemName', '')).strip()
-                            
-                            if p_item.startswith('3'):
-                                parent_str = f"{p_item}({p_name})"
-                                found_3_series = True
-                                break
+                    all_results = []
+                    matched_records = matched_rows.to_dict('records')
                     
-                    # 3번대 상위품목이 없는 데이터(노이즈) 제거
-                    if not found_3_series:
-                        continue
-                    
-                    final_pitem_combined = f"{pitem_no}({pitem_name})" if pitem_no else ""
-                    final_category = row.get(category_col, '') if category_col else ''
+                    for row in matched_records:
+                        item_no = row.get('ItemNo', '')
+                        item_name = row.get('ItemName', '')
+                        bom_level = str(row.get('BOMLevel', '')).strip()
+                        
+                        pitem_no = str(row.get('PItemNo', '')).strip()
+                        pitem_name = str(row.get('PItemName', '')).strip()
+                        rev = str(row.get('PItemBomRev', '')).strip() if 'PItemBomRev' in master_df_clean.columns else ''
+                        prefix = f"{pitem_no}_{rev}_" if 'PItemBomRev' in master_df_clean.columns else f"{pitem_no}_"
+                        
+                        tokens = bom_level.split('-') if bom_level else []
+                        
+                        parent_str = ""
+                        found_3_series = False
+                        
+                        if len(tokens) > 1:
+                            for i in range(len(tokens) - 1, 0, -1):
+                                p_lvl_str = "-".join(tokens[:i])
+                                search_key = prefix + p_lvl_str
+                                p_row = bom_map.get(search_key, {})
                                 
-                    all_results.append({
-                        '입력 자재 코드': item_no,
-                        '자재명': item_name if pd.notna(item_name) else "",
-                        '상위 품목': parent_str,
-                        '최종 제품(코드+제품명)': final_pitem_combined,
-                        '대분류': final_category if pd.notna(final_category) else ""
-                    })
+                                p_item = str(p_row.get('ItemNo', '')).strip()
+                                p_name = str(p_row.get('ItemName', '')).strip()
+                                
+                                if p_item.startswith('3'):
+                                    parent_str = f"{p_item}({p_name})"
+                                    found_3_series = True
+                                    break
+                        
+                        if not found_3_series:
+                            continue
+                        
+                        final_pitem_combined = f"{pitem_no}({pitem_name})" if pitem_no else ""
+                        final_category = row.get(category_col, '') if category_col else ''
+                                    
+                        all_results.append({
+                            '입력 자재 코드': item_no,
+                            '자재명': item_name if pd.notna(item_name) else "",
+                            '상위 품목': parent_str,
+                            '최종 제품(코드+제품명)': final_pitem_combined,
+                            '대분류': final_category if pd.notna(final_category) else ""
+                        })
+                    
+                    df_all = pd.DataFrame(all_results).drop_duplicates().reset_index(drop=True)
                 
-                df_all = pd.DataFrame(all_results).drop_duplicates().reset_index(drop=True)
-                
+                # 연산 종료 후 결과 표출
                 if df_all.empty:
                     st.warning("입력하신 자재 코드 중, 3번대 상위 품목을 거치는 데이터가 없습니다.")
                 else:
-                    # ==========================================
-                    # 🟢 1단계: 상위 품목 요약표 및 엑셀 다운로드
-                    # ==========================================
                     st.markdown("---")
                     st.markdown("#### 🟢 1단계: 투입 자재의 상위 품목 확인")
                     step1_df = df_all[['입력 자재 코드', '자재명', '상위 품목']].drop_duplicates().reset_index(drop=True)
                     st.dataframe(step1_df, hide_index=True)
                     
-                    # 1단계 전용 엑셀 생성
                     output_step1 = io.BytesIO()
                     with pd.ExcelWriter(output_step1, engine='openpyxl') as writer:
                         step1_df.to_excel(writer, index=False, sheet_name='1단계_요약결과')
@@ -206,9 +203,6 @@ else:
                         key="download_step1"
                     )
                     
-                    # ==========================================
-                    # 🔵 2단계: 체크박스(다중 선택) 및 최종 제품 조회
-                    # ==========================================
                     st.markdown("#### 🔵 2단계: 최종 제품 전개")
                     unique_parents = step1_df['상위 품목'].unique().tolist()
                     
@@ -219,13 +213,14 @@ else:
                     )
                     
                     if selected_parents:
-                        step2_df = df_all[df_all['상위 품목'].isin(selected_parents)]
-                        final_display_df = step2_df[['상위 품목', '최종 제품(코드+제품명)', '대분류']].drop_duplicates().reset_index(drop=True)
+                        # 💡 핵심 수정: 2단계 데이터 연산 중 로딩 스피너 작동
+                        with st.spinner("⏳ 선택하신 상위 품목의 최종 제품 구조를 전개하고 있습니다..."):
+                            step2_df = df_all[df_all['상위 품목'].isin(selected_parents)]
+                            final_display_df = step2_df[['상위 품목', '최종 제품(코드+제품명)', '대분류']].drop_duplicates().reset_index(drop=True)
                         
                         st.success(f"선택하신 상위 품목이 투입되는 최종 제품 총 {len(final_display_df)}건을 찾았습니다!")
                         st.dataframe(final_display_df, hide_index=True)
                         
-                        # 2단계 전용 엑셀 생성
                         output_step2 = io.BytesIO()
                         with pd.ExcelWriter(output_step2, engine='openpyxl') as writer:
                             final_display_df.to_excel(writer, index=False, sheet_name='2단계_최종제품결과')

@@ -13,7 +13,6 @@ SAVE_FILE_PATH = "saved_master_bom.xlsx"
 def load_and_process_bom(file_path):
     df = pd.read_excel(file_path, dtype=str)
     
-    # 💡 속도 최적화 1: 전체 열이 아닌 필수 핵심 열만 선별하여 공백 제거 연산 수행
     df.columns = df.columns.str.strip()
     required_cols = ['ItemNo', 'PItemNo', 'BOMLevel']
     
@@ -92,9 +91,10 @@ else:
                         category_col = col
                         break
                 
-                # 💡 속도 최적화 2: 수만 행을 하나씩 순회하는 iterrows()를 폐기하고, 메모리 상에서 index 딕셔너리로 초고속 직렬화
+                # 💡 핵심 수정: BOMLevel 데이터의 중복 행을 제거하여 인덱스 유일성(Unique)을 확보합니다.
                 master_df_clean = master_df[master_df['BOMLevel'].notna() & (master_df['BOMLevel'] != '')]
-                bom_map = master_df_clean.set_index('BOMLevel').to_dict('index')
+                master_df_unique = master_df_clean.drop_duplicates(subset=['BOMLevel'], keep='first')
+                bom_map = master_df_unique.set_index('BOMLevel').to_dict('index')
                 
                 result_data = []
                 matched_records = matched_rows.to_dict('records')

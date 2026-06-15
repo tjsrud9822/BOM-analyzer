@@ -4,6 +4,17 @@ import io
 import os
 import re
 
+# 상단 메뉴 및 불필요한 UI 숨김 처리
+hide_streamlit_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            header {visibility: hidden;}
+            footer {visibility: hidden;}
+            .stDeployButton {display:none;}
+            </style>
+            """
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 st.title("BOM 역전개 조회 프로그램")
 
 DEFAULT_MASTER_FILE = "master_bom.csv"
@@ -135,9 +146,10 @@ else:
                     
                     tokens = bom_level.split('-') if bom_level else []
                     
-                    # 💡 핵심 수정: 무조건 1계층 위를 찾는 것이 아니라, 
-                    # 트리를 거슬러 올라가며 '3'으로 시작하는 품목이 나올 때까지 탐색합니다.
-                    parent_str = "3번대 상위품목 없음 (5번 등에 직투입)"
+                    parent_str = ""
+                    found_3_series = False
+                    
+                    # 역추적하여 3으로 시작하는 품목 탐색
                     if len(tokens) > 1:
                         for i in range(len(tokens) - 1, 0, -1):
                             p_lvl_str = "-".join(tokens[:i])
@@ -147,10 +159,14 @@ else:
                             p_item = str(p_row.get('ItemNo', '')).strip()
                             p_name = str(p_row.get('ItemName', '')).strip()
                             
-                            # 5번 등을 패스하고, 3으로 시작하는 코드를 발견하는 순간 고정하고 멈춤
                             if p_item.startswith('3'):
                                 parent_str = f"{p_item}({p_name})"
+                                found_3_series = True
                                 break
+                    
+                    # 💡 핵심 수정: 3번대 코드를 찾지 못한 행(예: 5번 직투입)은 결과 리스트에 아예 추가하지 않고 폐기함
+                    if not found_3_series:
+                        continue
                     
                     final_pitem_combined = f"{pitem_no}({pitem_name})" if pitem_no else ""
                     final_category = row.get(category_col, '') if category_col else ''
@@ -165,40 +181,14 @@ else:
                 
                 df_all = pd.DataFrame(all_results).drop_duplicates().reset_index(drop=True)
                 
-                # --- 1단계: 상위 품목 요약표 ---
-                st.markdown("---")
-                st.markdown("#### 🟢 1단계: 투입 자재의 상위 품목 확인")
-                step1_df = df_all[['입력 자재 코드', '자재명', '상위 품목']].drop_duplicates().reset_index(drop=True)
-                st.dataframe(step1_df, hide_index=True)
-                
-                # --- 2단계: 체크박스(다중 선택) 및 최종 제품 조회 ---
-                st.markdown("#### 🔵 2단계: 최종 제품 전개")
-                unique_parents = step1_df['상위 품목'].unique().tolist()
-                
-                selected_parents = st.multiselect(
-                    "👉 최종 제품을 확인할 상위 품목을 선택하세요 (여러 개 선택 가능):", 
-                    options=unique_parents,
-                    placeholder="여기를 클릭하여 상위 품목 선택"
-                )
-                
-                if selected_parents:
-                    step2_df = df_all[df_all['상위 품목'].isin(selected_parents)]
-                    final_display_df = step2_df[['상위 품목', '최종 제품(코드+제품명)', '대분류']].drop_duplicates().reset_index(drop=True)
+                if df_all.empty:
+                    st.warning("입력하신 자재 코드 중, 3번대 상위 품목을 거치는 데이터가 없습니다.")
+                else:
+                    # --- 1단계: 상위 품목 요약표 ---
+                    st.markdown("---")
+                    st.markdown("#### 🟢 1단계: 투입 자재의 상위 품목 확인")
+                    step1_df = df_all[['입력 자재 코드', '자재명', '상위 품목']].drop_duplicates().reset_index(drop=True)
+                    st.dataframe(step1_df, hide_index=True)
                     
-                    st.success(f"선택하신 상위 품목이 투입되는 최종 제품 총 {len(final_display_df)}건을 찾았습니다!")
-                    st.dataframe(final_display_df, hide_index=True)
-                    
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        final_display_df.to_excel(writer, index=False, sheet_name='최종제품_역전개_결과')
-                    excel_data = output.getvalue()
-
-                    st.download_button(
-                        label="선택 결과 엑셀로 내려받기 📥",
-                        data=excel_data,
-                        file_name="BOM_최종제품_역전개_결과.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-
-    except Exception as e:
-        st.error(f"데이터 처리 중 오류가 발생했습니다: {e}")
+                    # --- 2단계: 체크박스(다중 선택) 및 최종 제품 조회 ---
+                    st.markdown("#### 🔵 2단계: 최종 제품 전개")

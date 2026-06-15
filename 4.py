@@ -149,7 +149,7 @@ else:
                     parent_str = ""
                     found_3_series = False
                     
-                    # 역추적하여 3으로 시작하는 품목 탐색
+                    # 5번 코드 패스, 3번대 코드만 추출
                     if len(tokens) > 1:
                         for i in range(len(tokens) - 1, 0, -1):
                             p_lvl_str = "-".join(tokens[:i])
@@ -164,7 +164,7 @@ else:
                                 found_3_series = True
                                 break
                     
-                    # 💡 핵심 수정: 3번대 코드를 찾지 못한 행(예: 5번 직투입)은 결과 리스트에 아예 추가하지 않고 폐기함
+                    # 3번대 상위품목이 없는 데이터(노이즈) 제거
                     if not found_3_series:
                         continue
                     
@@ -184,13 +184,31 @@ else:
                 if df_all.empty:
                     st.warning("입력하신 자재 코드 중, 3번대 상위 품목을 거치는 데이터가 없습니다.")
                 else:
-                    # --- 1단계: 상위 품목 요약표 ---
+                    # ==========================================
+                    # 🟢 1단계: 상위 품목 요약표 및 엑셀 다운로드
+                    # ==========================================
                     st.markdown("---")
                     st.markdown("#### 🟢 1단계: 투입 자재의 상위 품목 확인")
                     step1_df = df_all[['입력 자재 코드', '자재명', '상위 품목']].drop_duplicates().reset_index(drop=True)
                     st.dataframe(step1_df, hide_index=True)
                     
-                    # --- 2단계: 체크박스(다중 선택) 및 최종 제품 조회 ---
+                    # 1단계 전용 엑셀 생성
+                    output_step1 = io.BytesIO()
+                    with pd.ExcelWriter(output_step1, engine='openpyxl') as writer:
+                        step1_df.to_excel(writer, index=False, sheet_name='1단계_요약결과')
+                    excel_data_step1 = output_step1.getvalue()
+
+                    st.download_button(
+                        label="1단계 요약 결과 엑셀로 내려받기 📥",
+                        data=excel_data_step1,
+                        file_name="BOM_1단계_상위품목_요약.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="download_step1"
+                    )
+                    
+                    # ==========================================
+                    # 🔵 2단계: 체크박스(다중 선택) 및 최종 제품 조회
+                    # ==========================================
                     st.markdown("#### 🔵 2단계: 최종 제품 전개")
                     unique_parents = step1_df['상위 품목'].unique().tolist()
                     
@@ -207,16 +225,18 @@ else:
                         st.success(f"선택하신 상위 품목이 투입되는 최종 제품 총 {len(final_display_df)}건을 찾았습니다!")
                         st.dataframe(final_display_df, hide_index=True)
                         
-                        output = io.BytesIO()
-                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                            final_display_df.to_excel(writer, index=False, sheet_name='최종제품_역전개_결과')
-                        excel_data = output.getvalue()
+                        # 2단계 전용 엑셀 생성
+                        output_step2 = io.BytesIO()
+                        with pd.ExcelWriter(output_step2, engine='openpyxl') as writer:
+                            final_display_df.to_excel(writer, index=False, sheet_name='2단계_최종제품결과')
+                        excel_data_step2 = output_step2.getvalue()
 
                         st.download_button(
-                            label="선택 결과 엑셀로 내려받기 📥",
-                            data=excel_data,
-                            file_name="BOM_최종제품_역전개_결과.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            label="2단계 선택 결과 엑셀로 내려받기 📥",
+                            data=excel_data_step2,
+                            file_name="BOM_2단계_최종제품_결과.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="download_step2"
                         )
 
     except Exception as e:

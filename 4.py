@@ -6,14 +6,12 @@ import re
 
 st.title("BOM 역전개 조회 프로그램")
 
-# 💡 핵심: 깃허브에 올라간 CSV 파일을 기본 장착하여 매번 업로드하는 시간을 소멸시킴
 DEFAULT_MASTER_FILE = "master_bom.csv"
 UPLOADED_MASTER_FILE = "uploaded_master_bom.csv"
 
 # --------------------------------------------------
 @st.cache_data(show_spinner="초고속 메모리 로딩 중...")
 def load_and_process_bom(file_path):
-    # 무거운 엑셀(read_excel) 대신 초고속 CSV(read_csv)를 사용하여 0.1초 만에 해독
     try:
         try:
             df = pd.read_csv(file_path, dtype=str, encoding='utf-8')
@@ -33,7 +31,7 @@ def load_and_process_bom(file_path):
         raise ValueError(f"마스터 데이터에 {missing_cols} 컬럼이 반드시 있어야 합니다.")
         
     for col in df.columns:
-        if col in required_cols or '대분류' in str(col):
+        if col in required_cols or '대분류' in str(col) or 'PItemBomRev' in str(col):
             df[col] = df[col].fillna('').astype(str).str.strip()
         
     return df
@@ -78,7 +76,7 @@ else:
                 pasted_text = st.text_area(
                     "조회할 자재 코드를 복사해서 붙여넣으세요. (줄바꿈, 쉼표, 공백 구분 지원)", 
                     height=150,
-                    placeholder="예시:\n4AC\n4BC"
+                    placeholder="예시:\n4AC990533\n4BC"
                 )
                 search_btn = st.form_submit_button("조회하기 🔍")
             
@@ -109,9 +107,20 @@ else:
                         category_col = col
                         break
                 
-                master_df_clean = master_df[master_df['BOMLevel'].notna() & (master_df['BOMLevel'] != '')]
-                master_df_unique = master_df_clean.drop_duplicates(subset=['BOMLevel'], keep='first')
-                bom_map = master_df_unique.set_index('BOMLevel').to_dict('index')
+                # 💡 핵심 수정: 단순히 BOMLevel만 고유키로 쓰면 다른 제품의 트리가 삭제됨.
+                # (최종제품코드 + BOM버전 + BOMLevel)을 조합하여 절대 중복되지 않는 고유 키(TreeKey)를 생성.
+                master_df_clean = master_df[master_df['BOMLevel'].notna() & (master_df['BOMLevel'] != '')].copy()
+                
+                if 'PItemBomRev' in master_df_clean.columns:
+                    master_df_clean['TreeKey'] = master_df_clean['PItemNo'].astype(str) + "_" + \
+                                                 master_df_clean['PItemBomRev'].astype(str) + "_" + \
+                                                 master_df_clean['BOMLevel'].astype(str)
+                else:
+                    master_df_clean['TreeKey'] = master_df_clean['PItemNo'].astype(str) + "_" + \
+                                                 master_df_clean['BOMLevel'].astype(str)
+                
+                master_df_unique = master_df_clean.drop_duplicates(subset=['TreeKey'], keep='first')
+                bom_map = master_df_unique.set_index('TreeKey').to_dict('index')
                 
                 result_data = []
                 matched_records = matched_rows.to_dict('records')
@@ -121,12 +130,19 @@ else:
                     item_name = row.get('ItemName', '')
                     bom_level = str(row.get('BOMLevel', '')).strip()
                     
+                    pitem_no = str(row.get('PItemNo', '')).strip()
+                    pitem_name = str(row.get('PItemName', '')).strip()
+                    rev = str(row.get('PItemBomRev', '')).strip() if 'PItemBomRev' in master_df_clean.columns else ''
+                    prefix = f"{pitem_no}_{rev}_" if 'PItemBomRev' in master_df_clean.columns else f"{pitem_no}_"
+                    
                     tokens = bom_level.split('-') if bom_level else []
                     
+                    # 1. 중간 상위 레벨 역추적 (유실 없이 해당 트리의 직계 부모만 정확히 추적)
                     upper_items = []
-                    for i in range(len(tokens) - 1, 1, -1):
+                    for i in range(len(tokens) - 1, 0, -1):
                         p_lvl_str = "-".join(tokens[:i])
-                        p_row = bom_map.get(p_lvl_str, {})
+                        search_key = prefix + p_lvl_str
+                        p_row = bom_map.get(search_key, {})
                         p_item = p_row.get('ItemNo', '')
                         p_name = p_row.get('ItemName', '')
                         if p_item:
@@ -134,28 +150,10 @@ else:
                     
                     upper_items_combined = " ➔ ".join(upper_items) if upper_items else "직계 상위 없음"
                     
-                    final_pitem_no = ""
-                    final_pitem_name = ""
-                    final_category = ""
-                    
-                    if len(tokens) >= 2:
-                        level_2_str = "-".join(tokens[:2])
-                        level_2_row = bom_map.get(level_2_str, {})
-                        final_pitem_no = level_2_row.get('PItemNo', '')
-                        final_pitem_name = level_2_row.get('PItemName', '')
-                        if category_col:
-                            final_category = level_2_row.get(category_col, '')
-                    else:
-                        final_pitem_no = row.get('PItemNo', '')
-                        final_pitem_name = row.get('PItemName', '')
-                        if category_col:
-                            final_category = row.get(category_col, '')
-                    
-                    if not final_category or str(final_category).lower() == 'nan':
-                        if category_col:
-                            final_category = row.get(category_col, '')
-                            if not final_category or str(final_category).lower() == 'nan':
-                                final_category = ""
+                    # 2. 최종 제품 정보 (PItemNo) 및 대분류
+                    final_pitem_no = pitem_no
+                    final_pitem_name = pitem_name
+                    final_category = row.get(category_col, '') if category_col else ''
                                 
                     result_data.append({
                         '입력 자재 코드': item_no,

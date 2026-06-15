@@ -173,11 +173,10 @@ else:
                         
                         final_category = row.get(category_col, '') if category_col else ''
                                     
-                        # 💡 핵심 수정: 2단계 5칸 분리를 위해 데이터를 각각 분할 저장
                         all_results.append({
                             '입력 자재 코드': item_no,
                             '자재명': item_name if pd.notna(item_name) else "",
-                            '상위 품목': parent_str,
+                            '상위 품목': parent_str,  # 2단계 드롭다운 선택용 백그라운드 데이터
                             '상위품목 코드': found_p_item,
                             '상위품목 품명': found_p_name,
                             '최종제품 코드': pitem_no if pd.notna(pitem_no) else "",
@@ -195,7 +194,9 @@ else:
                     # ==========================================
                     st.markdown("---")
                     st.markdown("#### 🟢 1단계: 투입 자재의 상위 품목 확인")
-                    step1_df = df_all[['입력 자재 코드', '자재명', '상위 품목']].drop_duplicates().reset_index(drop=True)
+                    
+                    # 💡 핵심 수정: 1단계 출력 데이터에서도 상위품목을 코드와 품명으로 각각 분할함
+                    step1_df = df_all[['입력 자재 코드', '자재명', '상위품목 코드', '상위품목 품명']].drop_duplicates().reset_index(drop=True)
                     st.dataframe(step1_df, hide_index=True)
                     
                     output_step1 = io.BytesIO()
@@ -215,7 +216,9 @@ else:
                     # 🔵 2단계: 체크박스(다중 선택) 및 최종 제품 조회
                     # ==========================================
                     st.markdown("#### 🔵 2단계: 최종 제품 전개")
-                    unique_parents = step1_df['상위 품목'].unique().tolist()
+                    
+                    # 체크박스는 식별이 편하도록 묶여있는 '상위 품목' 데이터를 사용
+                    unique_parents = df_all['상위 품목'].unique().tolist()
                     
                     selected_parents = st.multiselect(
                         "👉 최종 제품을 확인할 상위 품목을 선택하세요 (여러 개 선택 가능):", 
@@ -226,7 +229,6 @@ else:
                     if selected_parents:
                         with st.spinner("⏳ 선택하신 상위 품목의 최종 제품 구조를 전개하고 있습니다..."):
                             step2_df = df_all[df_all['상위 품목'].isin(selected_parents)]
-                            # 💡 핵심 수정: 화면 및 엑셀 출력 시 정확히 5칸으로 분리하여 산출
                             final_display_df = step2_df[['상위품목 코드', '상위품목 품명', '최종제품 코드', '최종제품명', '대분류']].drop_duplicates().reset_index(drop=True)
                         
                         st.success(f"선택하신 상위 품목이 투입되는 최종 제품 총 {len(final_display_df)}건을 찾았습니다!")

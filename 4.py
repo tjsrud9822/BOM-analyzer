@@ -204,7 +204,7 @@ else:
                     excel_data_step1 = output_step1.getvalue()
 
                     st.download_button(
-                        label="1단계 요약 결과 엑셀로 내려받기 📥",
+                        label="엑셀로 내려받기 📥",
                         data=excel_data_step1,
                         file_name="BOM_1단계_상위품목_요약.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -238,7 +238,7 @@ else:
                         excel_data_step2 = output_step2.getvalue()
 
                         st.download_button(
-                            label="2단계 5칸 분할 결과 엑셀로 내려받기 📥",
+                            label="엑셀로 내려받기 📥",
                             data=excel_data_step2,
                             file_name="BOM_2단계_최종제품_결과.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

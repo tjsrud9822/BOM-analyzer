@@ -64,7 +64,7 @@ else:
         master_df = load_and_process_bom(current_file_path)
             
         st.markdown("### 🔍 단계별 역전개 조회")
-        st.write("자재 코드(ItemNo)를 입력하여 상위 품목을 먼저 확인한 뒤, 원하는 상위 품목의 최종 제품을 조회합니다.")
+        st.write("자재 코드(ItemNo)를 입력하여 상위 품목(3번대)을 먼저 확인한 뒤, 원하는 상위 품목의 최종 제품을 조회합니다.")
         
         tab1, tab2 = st.tabs(["📋 텍스트 복사/붙여넣기", "📂 엑셀 파일 업로드"])
         
@@ -135,16 +135,22 @@ else:
                     
                     tokens = bom_level.split('-') if bom_level else []
                     
-                    parent_str = "직계 상위 없음 (최상위 품목)"
+                    # 💡 핵심 수정: 무조건 1계층 위를 찾는 것이 아니라, 
+                    # 트리를 거슬러 올라가며 '3'으로 시작하는 품목이 나올 때까지 탐색합니다.
+                    parent_str = "3번대 상위품목 없음 (5번 등에 직투입)"
                     if len(tokens) > 1:
-                        p_lvl_str = "-".join(tokens[:-1])
-                        search_key = prefix + p_lvl_str
-                        p_row = bom_map.get(search_key, {})
-                        
-                        p_item = p_row.get('ItemNo', '')
-                        p_name = p_row.get('ItemName', '')
-                        if p_item:
-                            parent_str = f"{p_item}({p_name})"
+                        for i in range(len(tokens) - 1, 0, -1):
+                            p_lvl_str = "-".join(tokens[:i])
+                            search_key = prefix + p_lvl_str
+                            p_row = bom_map.get(search_key, {})
+                            
+                            p_item = str(p_row.get('ItemNo', '')).strip()
+                            p_name = str(p_row.get('ItemName', '')).strip()
+                            
+                            # 5번 등을 패스하고, 3으로 시작하는 코드를 발견하는 순간 고정하고 멈춤
+                            if p_item.startswith('3'):
+                                parent_str = f"{p_item}({p_name})"
+                                break
                     
                     final_pitem_combined = f"{pitem_no}({pitem_name})" if pitem_no else ""
                     final_category = row.get(category_col, '') if category_col else ''
@@ -158,10 +164,6 @@ else:
                     })
                 
                 df_all = pd.DataFrame(all_results).drop_duplicates().reset_index(drop=True)
-                
-                # ==========================================
-                # 💡 핵심 수정: 화면을 1단계와 2단계로 명확히 분리
-                # ==========================================
                 
                 # --- 1단계: 상위 품목 요약표 ---
                 st.markdown("---")
@@ -186,7 +188,6 @@ else:
                     st.success(f"선택하신 상위 품목이 투입되는 최종 제품 총 {len(final_display_df)}건을 찾았습니다!")
                     st.dataframe(final_display_df, hide_index=True)
                     
-                    # 엑셀 다운로드는 사용자가 선택한 최종 결과만 깔끔하게 저장
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         final_display_df.to_excel(writer, index=False, sheet_name='최종제품_역전개_결과')

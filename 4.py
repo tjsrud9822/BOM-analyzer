@@ -13,14 +13,17 @@ SAVE_FILE_PATH = "saved_master_bom.xlsx"
 def load_and_process_bom(file_path):
     df = pd.read_excel(file_path, dtype=str)
     
-    for col in df.columns:
-        df[col] = df[col].astype(str).str.strip()
-    
-    # 필수 핵심 컬럼 검증
+    # 💡 속도 최적화 1: 전체 열이 아닌 필수 핵심 열만 선별하여 공백 제거 연산 수행
+    df.columns = df.columns.str.strip()
     required_cols = ['ItemNo', 'PItemNo', 'BOMLevel']
+    
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         raise ValueError(f"마스터 BOM 엑셀 파일에 {missing_cols} 컬럼이 반드시 있어야 합니다.")
+        
+    for col in df.columns:
+        if col in required_cols or '대분류' in str(col):
+            df[col] = df[col].fillna('').astype(str).str.strip()
         
     return df
 
@@ -78,36 +81,32 @@ else:
         if not target_codes:
             st.info("💡 위의 입력창에 코드를 붙여넣고 [조회하기]를 누르거나, 엑셀 파일을 업로드해 주세요.")
         else:
-            # 입력된 자재 코드가 마스터 BOM의 ItemNo와 일치하는 데이터 필터링
             matched_rows = master_df[master_df['ItemNo'].isin(target_codes)]
             
             if matched_rows.empty:
                 st.warning("마스터 BOM에서 일치하는 자재 코드를 찾지 못했습니다.")
             else:
-                # 마스터 BOM 내부의 대분류 관련 컬럼명 찾기
                 category_col = None
                 for col in master_df.columns:
                     if '대분류' in str(col):
                         category_col = col
                         break
                 
-                # 속도 최적화를 위해 BOMLevel을 key로 하는 딕셔너리 사전 맵 생성
-                bom_map = {}
-                for idx, row in master_df.iterrows():
-                    b_lvl = str(row.get('BOMLevel', '')).strip()
-                    if b_lvl:
-                        bom_map[b_lvl] = row
+                # 💡 속도 최적화 2: 수만 행을 하나씩 순회하는 iterrows()를 폐기하고, 메모리 상에서 index 딕셔너리로 초고속 직렬화
+                master_df_clean = master_df[master_df['BOMLevel'].notna() & (master_df['BOMLevel'] != '')]
+                bom_map = master_df_clean.set_index('BOMLevel').to_dict('index')
                 
                 result_data = []
+                matched_records = matched_rows.to_dict('records')
                 
-                for idx, row in matched_rows.iterrows():
+                for row in matched_records:
                     item_no = row.get('ItemNo', '')
                     item_name = row.get('ItemName', '')
                     bom_level = str(row.get('BOMLevel', '')).strip()
                     
                     tokens = bom_level.split('-') if bom_level else []
                     
-                    # 1. 중간 상위 레벨 역추적 (예: 1-1-1-2 -> 1-1-1 코드, 1-1 코드 순으로 수집)
+                    # 1. 중간 상위 레벨 역추적
                     upper_items = []
                     for i in range(len(tokens) - 1, 1, -1):
                         p_lvl_str = "-".join(tokens[:i])
@@ -119,27 +118,24 @@ else:
                     
                     upper_items_combined = " ➔ ".join(upper_items) if upper_items else "직계 상위 없음"
                     
-                    # 2. 최종 상위 제품 정보(1-1 레벨의 부모 데이터) 및 대분류 추출
+                    # 2. 최종 상위 제품 정보 및 대분류 추출
                     final_pitem_no = ""
                     final_pitem_name = ""
                     final_category = ""
                     
                     if len(tokens) >= 2:
-                        level_2_str = "-".join(tokens[:2])  # '1-1'에 해당하는 레벨 문자열
+                        level_2_str = "-".join(tokens[:2])
                         level_2_row = bom_map.get(level_2_str, {})
                         final_pitem_no = level_2_row.get('PItemNo', '')
                         final_pitem_name = level_2_row.get('PItemName', '')
-                        
                         if category_col:
                             final_category = level_2_row.get(category_col, '')
                     else:
-                        # 레벨 구조가 단층인 경우 현재 행의 부모 정보를 적용
                         final_pitem_no = row.get('PItemNo', '')
                         final_pitem_name = row.get('PItemName', '')
                         if category_col:
                             final_category = row.get(category_col, '')
                     
-                    # 데이터 누락 방지 보정 (문자열 빈값 또는 nan 예외 처리)
                     if not final_category or str(final_category).lower() == 'nan':
                         if category_col:
                             final_category = row.get(category_col, '')

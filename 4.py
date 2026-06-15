@@ -75,7 +75,7 @@ else:
         master_df = load_and_process_bom(current_file_path)
             
         st.markdown("### 🔍 단계별 역전개 조회")
-        st.write("자재 코드(ItemNo)를 입력하여 상위 품목(3번대)을 먼저 확인한 뒤, 원하는 상위 품목의 최종 제품을 조회합니다.")
+        st.write("자재 코드를 입력하여 상위 품목(3번대)을 먼저 확인한 뒤, 원하는 상위 품목의 최종 제품을 조회합니다.")
         
         tab1, tab2 = st.tabs(["📋 텍스트 복사/붙여넣기", "📂 엑셀 파일 업로드"])
         

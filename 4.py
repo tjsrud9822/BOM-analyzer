@@ -192,3 +192,32 @@ else:
                     
                     # --- 2단계: 체크박스(다중 선택) 및 최종 제품 조회 ---
                     st.markdown("#### 🔵 2단계: 최종 제품 전개")
+                    unique_parents = step1_df['상위 품목'].unique().tolist()
+                    
+                    selected_parents = st.multiselect(
+                        "👉 최종 제품을 확인할 상위 품목을 선택하세요 (여러 개 선택 가능):", 
+                        options=unique_parents,
+                        placeholder="여기를 클릭하여 상위 품목 선택"
+                    )
+                    
+                    if selected_parents:
+                        step2_df = df_all[df_all['상위 품목'].isin(selected_parents)]
+                        final_display_df = step2_df[['상위 품목', '최종 제품(코드+제품명)', '대분류']].drop_duplicates().reset_index(drop=True)
+                        
+                        st.success(f"선택하신 상위 품목이 투입되는 최종 제품 총 {len(final_display_df)}건을 찾았습니다!")
+                        st.dataframe(final_display_df, hide_index=True)
+                        
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            final_display_df.to_excel(writer, index=False, sheet_name='최종제품_역전개_결과')
+                        excel_data = output.getvalue()
+
+                        st.download_button(
+                            label="선택 결과 엑셀로 내려받기 📥",
+                            data=excel_data,
+                            file_name="BOM_최종제품_역전개_결과.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+
+    except Exception as e:
+        st.error(f"데이터 처리 중 오류가 발생했습니다: {e}")
